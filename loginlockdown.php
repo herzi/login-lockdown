@@ -2,7 +2,7 @@
 /* 
 Plugin Name: Login LockDown
 Plugin URI: http://www.bad-neighborhood.com/
-Version: v1.1
+Version: v1.2
 Author: Michael VanDeMar
 Description: Adds some extra security to WordPress by restricting the rate at which failed logins can be re-attempted from a given IP range. Distributed through <a href="http://www.bad-neighborhood.com/" target="_blank">Bad Neighborhood</a>.
 */
@@ -15,12 +15,15 @@ Description: Adds some extra security to WordPress by restricting the rate at wh
 *
 * ver. 1.1 01-Sep-2007
 * - revised time query to MySQL 4.0 compatability
+*
+* ver. 1.2 15-Jun-2008
+* - now compatible with WordPress 2.5 and up only
 */
 
 /*
 == Installation ==
 
-1. Extract loginlockdown-1.0.zip into your wp-content/plugins directory into its own folder.
+1. Extract loginlockdown-1.2.zip into your wp-content/plugins directory into its own folder.
 2. Activate the plugin in the Plugin options.
 3. Customize the settings from the Options panel, if desired.
 
@@ -252,57 +255,67 @@ function loginlockdown_ap() {
 	}
 }
 
+function ll_credit_link(){
+	echo "<p>Login form protected by <a href='http://www.bad-neighborhood.com/login-lockdown.html'>Login LockDown</a>.</p>";
+}
+
 //Actions and Filters   
 if ( isset($loginlockdown_db_version) ) {
 	//Actions
 	add_action('admin_menu', 'loginlockdown_ap');
 	add_action('activate_loginlockdown/loginlockdown.php', 'loginLockdown_install');
+	add_action('login_form', 'll_credit_link');
 	//Filters
 	//Functions
-	if ( !function_exists('wp_login') ) :
-	function wp_login($username, $password, $already_md5 = false) {
+	if ( !function_exists('wp_authenticate') ) :
+	function wp_authenticate($username, $password) {
 		global $wpdb, $error;
 		global $loginlockdownOptions;
 
 		if ( 0 < isLockedDown() ) {
-			$error = __("<strong>ERROR</strong>: We're sorry, but this IP range has been blocked due to too many recent " .
+			return new WP_Error('incorrect_password', "<strong>ERROR</strong>: We're sorry, but this IP range has been blocked due to too many recent " .
 					"failed login attempts.<br /><br />Please try again later.");
-			$pwd = '';
-			return false;
 		}
 
 		if ( '' == $username )
-			return false;
+			return new WP_Error('empty_username', __('<strong>ERROR</strong>: The username field is empty.'));
 
 		if ( '' == $password ) {
-			$error = __('<strong>ERROR</strong>: The password field is empty.');
-			return false;
+			return new WP_Error('empty_password', __('<strong>ERROR</strong>: The password field is empty.'));
 		}
 
-		$login = get_userdatabylogin($username);
-		//$login = $wpdb->get_row("SELECT ID, user_login, user_pass FROM $wpdb->users WHERE user_login = '$username'");
+		$user = get_userdatabylogin($username);
 
-		if (!$login) {
-			$error = __('<strong>ERROR</strong>: Invalid username.');
-			return false;
-		} else {
-			// If the password is already_md5, it has been double hashed.
-			// Otherwise, it is plain text.
-			if ( ($already_md5 && md5($login->user_pass) == $password) || ($login->user_login == $username && $login->user_pass == md5($password)) ) {
-				return true;
-			} else {
-				incrementFails($username);
-				$error = __('<strong>ERROR</strong>: Incorrect password.');
-				if ( $loginlockdownOptions['max_login_retries'] <= countFails($username) ) {
-					lockDown($username);
-					$error = __("<strong>ERROR</strong>: We're sorry, but this IP range has been blocked due to too many recent " .
-							"failed login attempts.<br /><br />Please try again later.");
-				}
+		if ( !$user || ($user->user_login != $username) ) {
+			do_action( 'wp_login_failed', $username );
+			return new WP_Error('invalid_username', __('<strong>ERROR</strong>: Invalid username.'));
+		}
 
-				$pwd = '';
-				return false;
+		$user = apply_filters('wp_authenticate_user', $user, $password);
+		if ( is_wp_error($user) ) {
+			incrementFails($username);
+			if ( $loginlockdownOptions['max_login_retries'] <= countFails($username) ) {
+				lockDown($username);
+				return new WP_Error('incorrect_password', __("<strong>ERROR</strong>: We're sorry, but this IP range has been blocked due to too many recent " .
+						"failed login attempts.<br /><br />Please try again later."));
 			}
+			do_action( 'wp_login_failed', $username );
+			return $user;
 		}
+
+		if ( !wp_check_password($password, $user->user_pass, $user->ID) ) {
+			incrementFails($username);
+			if ( $loginlockdownOptions['max_login_retries'] <= countFails($username) ) {
+				lockDown($username);
+				return new WP_Error('incorrect_password', __("<strong>ERROR</strong>: We're sorry, but this IP range has been blocked due to too many recent " .
+						"failed login attempts.<br /><br />Please try again later."));
+			}
+			do_action( 'wp_login_failed', $username );
+			return new WP_Error('incorrect_password', __('<strong>ERROR</strong>: Incorrect password.'));
+		}
+
+		return new WP_User($user->ID);
+
 	}
 	endif;
 }

@@ -1,9 +1,9 @@
 === Login LockDown ===
 Developer: Michael VanDeMar (michael@endlesspoetry.com)
 Tags: security, login
-Requires at least: 2.1
-Tested up to: 2.2
-Stable Tag: 1.1
+Requires at least: 2.5
+Tested up to: 2.5.1
+Stable Tag: 1.2
 
 Limits the number of login attempts from a given IP range within a certain time period.
 
@@ -18,7 +18,7 @@ via the Options panel. Admisitrators can release locked out IP ranges manually f
 
 == Installation ==
 
-1. Extract loginlockdown-1.1.zip into your wp-content/plugins directory into its own folder.
+1. Extract loginlockdown-1.2.zip into your wp-content/plugins directory into its own folder.
 2. Activate the plugin in the Plugin options.
 3. Customize the settings from the Options panel, if desired.
 
