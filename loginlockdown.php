@@ -2,7 +2,7 @@
 /* 
 Plugin Name: Login LockDown
 Plugin URI: http://www.bad-neighborhood.com/
-Version: v1.2
+Version: v1.3
 Author: Michael VanDeMar
 Description: Adds some extra security to WordPress by restricting the rate at which failed logins can be re-attempted from a given IP range. Distributed through <a href="http://www.bad-neighborhood.com/" target="_blank">Bad Neighborhood</a>.
 */
@@ -10,20 +10,24 @@ Description: Adds some extra security to WordPress by restricting the rate at wh
 /*
 * Change Log
 *
-* ver. 1.0 29-Aug-2007
-* - released
+* ver. 1.3 23-Feb-2009
+* - adjusted positioning of plugin byline
+* - allowed for dynamic location of plugin files
+*
+* ver. 1.2 15-Jun-2008
+* - now compatible with WordPress 2.5 and up only
 *
 * ver. 1.1 01-Sep-2007
 * - revised time query to MySQL 4.0 compatability
 *
-* ver. 1.2 15-Jun-2008
-* - now compatible with WordPress 2.5 and up only
+* ver. 1.0 29-Aug-2007
+* - released
 */
 
 /*
 == Installation ==
 
-1. Extract loginlockdown-1.2.zip into your wp-content/plugins directory into its own folder.
+1. Extract the zip file into your plugins directory into its own folder.
 2. Activate the plugin in the Plugin options.
 3. Customize the settings from the Options panel, if desired.
 
@@ -256,14 +260,18 @@ function loginlockdown_ap() {
 }
 
 function ll_credit_link(){
-	echo "<p>Login form protected by <a href='http://www.bad-neighborhood.com/login-lockdown.html'>Login LockDown</a>.</p>";
+	echo "<p>Login form protected by <a href='http://www.bad-neighborhood.com/login-lockdown.html'>Login LockDown</a>.<br /><br /><br /></p>";
 }
 
 //Actions and Filters   
 if ( isset($loginlockdown_db_version) ) {
 	//Actions
 	add_action('admin_menu', 'loginlockdown_ap');
-	add_action('activate_loginlockdown/loginlockdown.php', 'loginLockdown_install');
+	if(!defined('PLUGINDIR')){
+		define('PLUGINDIR', 'wp-content/plugins');
+	}
+	$activatestr = str_replace(ABSPATH.PLUGINDIR."/", "activate_", __FILE__);
+	add_action($activatestr, 'loginLockdown_install');
 	add_action('login_form', 'll_credit_link');
 	//Filters
 	//Functions
