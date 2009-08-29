@@ -2,13 +2,19 @@
 /* 
 Plugin Name: Login LockDown
 Plugin URI: http://www.bad-neighborhood.com/
-Version: v1.3
+Version: v1.4
 Author: Michael VanDeMar
 Description: Adds some extra security to WordPress by restricting the rate at which failed logins can be re-attempted from a given IP range. Distributed through <a href="http://www.bad-neighborhood.com/" target="_blank">Bad Neighborhood</a>.
 */
 
 /*
 * Change Log
+*
+* ver. 1.4 29-Aug-2009
+* - removed erroneous error affecting WP 2.8+
+* - fixed activation error caused by customizing the location of the wp-content folder
+* - added in the option to mask which specific login error (invalid username or invalid password) was generated
+* - added in the option to lock out failed login attempts even if the username doesn't exist
 *
 * ver. 1.3 23-Feb-2009
 * - adjusted positioning of plugin byline
@@ -40,7 +46,7 @@ Description: Adds some extra security to WordPress by restricting the rate at wh
 |                                                                    |
 | Login LockDown - added security measures to WordPress intended to  |
 | inhibit or reduce brute force password discovery.                  |
-| Copyright (C) 2007, Michael VanDeMar,                              |
+| Copyright (C) 2007 - 2009, Michael VanDeMar,                              |
 | http://www.bad-neighborhood.com                                    |
 | All rights reserved.                                               |
 |                                                                    |
@@ -118,14 +124,15 @@ function countFails($username = "") {
 
 function incrementFails($username = "") {
 	global $wpdb;
+	global $loginlockdownOptions;
 	$table_name = $wpdb->prefix . "login_fails";
 	$ip = $_SERVER['REMOTE_ADDR'];
 
 	$username = sanitize_user($username);
 	$user = get_userdatabylogin($username);
-	if ( $user ) {
+	if ( $user || "yes" == $loginlockdownOptions['lockout_invalid_usernames'] ) {
 		$insert = "INSERT INTO " . $table_name . " (user_id, login_attempt_date, login_attempt_IP) " .
-				"VALUES ('" . $user->ID . "', now(), '" . $ip . "')";
+				"VALUES ('" . $user->ID . "', now(), '" . mysql_real_escape_string($ip) . "')";
 		$results = $wpdb->query($insert);
 	}
 }
@@ -138,7 +145,7 @@ function lockDown($username = "") {
 
 	$username = sanitize_user($username);
 	$user = get_userdatabylogin($username);
-	if ( $user ) {
+	if ( $user || "yes" == $loginlockdownOptions['lockout_invalid_usernames'] ) {
 		$insert = "INSERT INTO " . $table_name . " (user_id, lockdown_date, release_date, lockdown_IP) " .
 				"VALUES ('" . $user->ID . "', now(), date_add(now(), INTERVAL " .
 				$loginlockdownOptions['lockout_length'] . " MINUTE), '" . $ip . "')";
@@ -173,7 +180,9 @@ function get_loginlockdownOptions() {
 	$loginlockdownAdminOptions = array(
 		'max_login_retries' => 3,
 		'retries_within' => 5,
-		'lockout_length' => 60);
+		'lockout_length' => 60,
+		'lockout_invalid_usernames' => 'no',
+		'mask_login_errors' => 'no');
 	$loginlockdownOptions = get_option("loginlockdownAdminOptions");
 	if ( !empty($loginlockdownOptions) ) {
 		foreach ( $loginlockdownOptions as $key => $option ) {
@@ -199,6 +208,12 @@ function print_loginlockdownAdminPage() {
 		if (isset($_POST['ll_lockout_length'])) {
 			$loginlockdownAdminOptions['lockout_length'] = $_POST['ll_lockout_length'];
 		}
+		if (isset($_POST['ll_lockout_invalid_usernames'])) {
+			$loginlockdownAdminOptions['lockout_invalid_usernames'] = $_POST['ll_lockout_invalid_usernames'];
+		}
+		if (isset($_POST['ll_mask_login_errors'])) {
+			$loginlockdownAdminOptions['mask_login_errors'] = $_POST['ll_mask_login_errors'];
+		}
 		update_option("loginlockdownAdminOptions", $loginlockdownAdminOptions);
 		?>
 <div class="updated"><p><strong><?php _e("Settings Updated.", "loginlockdown");?></strong></p></div>
@@ -223,11 +238,15 @@ function print_loginlockdownAdminPage() {
 <form method="post" action="<?php echo $_SERVER["REQUEST_URI"]; ?>">
 <h2><?php _e('Login LockDown Options', 'loginlockdown') ?></h2>
 <h3><?php _e('Max Login Retries', 'loginlockdown') ?></h3>
-<input name="ll_max_login_retries" size="8" value="<?php echo $loginlockdownAdminOptions['max_login_retries']; ?>">
+<input type="text" name="ll_max_login_retries" size="8" value="<?php echo $loginlockdownAdminOptions['max_login_retries']; ?>">
 <h3><?php _e('Retry Time Period Restriction (minutes)', 'loginlockdown') ?></h3>
-<input name="ll_retries_within" size="8" value="<?php echo $loginlockdownAdminOptions['retries_within']; ?>">
+<input type="text" name="ll_retries_within" size="8" value="<?php echo $loginlockdownAdminOptions['retries_within']; ?>">
 <h3><?php _e('Lockout Length (minutes)', 'loginlockdown') ?></h3>
-<input name="ll_lockout_length" size="8" value="<?php echo $loginlockdownAdminOptions['lockout_length']; ?>">
+<input type="text" name="ll_lockout_length" size="8" value="<?php echo $loginlockdownAdminOptions['lockout_length']; ?>">
+<h3><?php _e('Lockout Invalid Usernames?', 'loginlockdown') ?></h3>
+<input type="radio" name="ll_lockout_invalid_usernames" value="yes" <?php if( $loginlockdownAdminOptions['lockout_invalid_usernames'] == "yes" ) echo "checked"; ?>>&nbsp;Yes&nbsp;&nbsp;&nbsp;<input type="radio" name="ll_lockout_invalid_usernames" value="no" <?php if( $loginlockdownAdminOptions['lockout_invalid_usernames'] == "no" ) echo "checked"; ?>>&nbsp;No
+<h3><?php _e('Mask Login Errors?', 'loginlockdown') ?></h3>
+<input type="radio" name="ll_mask_login_errors" value="yes" <?php if( $loginlockdownAdminOptions['mask_login_errors'] == "yes" ) echo "checked"; ?>>&nbsp;Yes&nbsp;&nbsp;&nbsp;<input type="radio" name="ll_mask_login_errors" value="no" <?php if( $loginlockdownAdminOptions['mask_login_errors'] == "no" ) echo "checked"; ?>>&nbsp;No
 <div class="submit">
 <input type="submit" name="update_loginlockdownSettings" value="<?php _e('Update Settings', 'loginlockdown') ?>" /></div>
 </form>
@@ -267,63 +286,90 @@ function ll_credit_link(){
 if ( isset($loginlockdown_db_version) ) {
 	//Actions
 	add_action('admin_menu', 'loginlockdown_ap');
-	if(!defined('PLUGINDIR')){
-		define('PLUGINDIR', 'wp-content/plugins');
+	if(!defined('WP_PLUGIN_DIR')){
+		define('WP_PLUGIN_DIR', ABSPATH . 'wp-content/plugins');
 	}
-	$activatestr = str_replace(ABSPATH.PLUGINDIR."/", "activate_", __FILE__);
+	$activatestr = str_replace(WP_PLUGIN_DIR . "/", "activate_", __FILE__);
 	add_action($activatestr, 'loginLockdown_install');
 	add_action('login_form', 'll_credit_link');
+
+	remove_filter('authenticate', 'wp_authenticate_username_password', 20, 3);
+	add_filter('authenticate', 'll_wp_authenticate_username_password', 20, 3);
 	//Filters
 	//Functions
+	function ll_wp_authenticate_username_password($user, $username, $password) {
+		if ( is_a($user, 'WP_User') ) { return $user; }
+
+		if ( empty($username) || empty($password) ) {
+			$error = new WP_Error();
+
+			if ( empty($username) )
+				$error->add('empty_username', __('<strong>ERROR</strong>: The username field is empty.'));
+
+			if ( empty($password) )
+				$error->add('empty_password', __('<strong>ERROR</strong>: The password field is empty.'));
+
+			return $error;
+		}
+
+		$userdata = get_userdatabylogin($username);
+
+		if ( !$userdata ) {
+			return new WP_Error('invalid_username', sprintf(__('<strong>ERROR</strong>: Invalid username. <a href="%s" title="Password Lost and Found">Lost your password</a>?'), site_url('wp-login.php?action=lostpassword', 'login')));
+		}
+
+		$userdata = apply_filters('wp_authenticate_user', $userdata, $password);
+		if ( is_wp_error($userdata) ) {
+			return $userdata;
+		}
+
+		if ( !wp_check_password($password, $userdata->user_pass, $userdata->ID) ) {
+			return new WP_Error('incorrect_password', sprintf(__('<strong>ERROR</strong>: Incorrect password. <a href="%s" title="Password Lost and Found">Lost your password</a>?'), site_url('wp-login.php?action=lostpassword', 'login')));
+		}
+
+		$user =  new WP_User($userdata->ID);
+		return $user;
+	}
+
+
 	if ( !function_exists('wp_authenticate') ) :
 	function wp_authenticate($username, $password) {
 		global $wpdb, $error;
 		global $loginlockdownOptions;
+
+		$username = sanitize_user($username);
+		$password = trim($password);
 
 		if ( 0 < isLockedDown() ) {
 			return new WP_Error('incorrect_password', "<strong>ERROR</strong>: We're sorry, but this IP range has been blocked due to too many recent " .
 					"failed login attempts.<br /><br />Please try again later.");
 		}
 
-		if ( '' == $username )
-			return new WP_Error('empty_username', __('<strong>ERROR</strong>: The username field is empty.'));
+		$user = apply_filters('authenticate', null, $username, $password);
 
-		if ( '' == $password ) {
-			return new WP_Error('empty_password', __('<strong>ERROR</strong>: The password field is empty.'));
+		if ( $user == null ) {
+			// TODO what should the error message be? (Or would these even happen?)
+			// Only needed if all authentication handlers fail to return anything.
+			$user = new WP_Error('authentication_failed', __('<strong>ERROR</strong>: Invalid username or incorrect password.'));
 		}
 
-		$user = get_userdatabylogin($username);
+		$ignore_codes = array('empty_username', 'empty_password');
 
-		if ( !$user || ($user->user_login != $username) ) {
-			do_action( 'wp_login_failed', $username );
-			return new WP_Error('invalid_username', __('<strong>ERROR</strong>: Invalid username.'));
-		}
-
-		$user = apply_filters('wp_authenticate_user', $user, $password);
-		if ( is_wp_error($user) ) {
+		if (is_wp_error($user) && !in_array($user->get_error_code(), $ignore_codes) ) {
 			incrementFails($username);
 			if ( $loginlockdownOptions['max_login_retries'] <= countFails($username) ) {
 				lockDown($username);
 				return new WP_Error('incorrect_password', __("<strong>ERROR</strong>: We're sorry, but this IP range has been blocked due to too many recent " .
 						"failed login attempts.<br /><br />Please try again later."));
 			}
-			do_action( 'wp_login_failed', $username );
-			return $user;
-		}
-
-		if ( !wp_check_password($password, $user->user_pass, $user->ID) ) {
-			incrementFails($username);
-			if ( $loginlockdownOptions['max_login_retries'] <= countFails($username) ) {
-				lockDown($username);
-				return new WP_Error('incorrect_password', __("<strong>ERROR</strong>: We're sorry, but this IP range has been blocked due to too many recent " .
-						"failed login attempts.<br /><br />Please try again later."));
+			if ( 'yes' == $loginlockdownOptions['mask_login_errors'] ) {
+				return new WP_Error('authentication_failed', sprintf(__('<strong>ERROR</strong>: Invalid username or incorrect password. <a href="%s" title="Password Lost and Found">Lost your password</a>?'), site_url('wp-login.php?action=lostpassword', 'login')));
+			} else {
+				do_action('wp_login_failed', $username);
 			}
-			do_action( 'wp_login_failed', $username );
-			return new WP_Error('incorrect_password', __('<strong>ERROR</strong>: Incorrect password.'));
 		}
 
-		return new WP_User($user->ID);
-
+		return $user;
 	}
 	endif;
 }
