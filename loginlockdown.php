@@ -2,13 +2,19 @@
 /* 
 Plugin Name: Login LockDown
 Plugin URI: http://www.bad-neighborhood.com/
-Version: v1.4
+Version: v1.5
 Author: Michael VanDeMar
 Description: Adds some extra security to WordPress by restricting the rate at which failed logins can be re-attempted from a given IP range. Distributed through <a href="http://www.bad-neighborhood.com/" target="_blank">Bad Neighborhood</a>.
 */
 
 /*
 * Change Log
+*
+* ver. 1.5 17-Sep-2009
+* - implemented wp_nonce security in the options and lockdown release forms in the admin screen
+* - fixed a security hole with an improperly escaped SQL query
+* - encoded certain outputs in the admin panel using esc_attr() to prevent XSS attacks
+* - fixed an issue with the 'Lockout Invalid Usernames' option not functioning as intended
 *
 * ver. 1.4 29-Aug-2009
 * - removed erroneous error affecting WP 2.8+
@@ -118,7 +124,7 @@ function countFails($username = "") {
 	$numFails = $wpdb->get_var("SELECT COUNT(login_attempt_ID) FROM $table_name " . 
 					"WHERE login_attempt_date + INTERVAL " .
 					$loginlockdownOptions['retries_within'] . " MINUTE > now() AND " . 
-					"login_attempt_IP LIKE '$class_c%'");
+					"login_attempt_IP LIKE '" . $wpdb->escape($class_c) . "%'");
 	return $numFails;
 }
 
@@ -132,7 +138,7 @@ function incrementFails($username = "") {
 	$user = get_userdatabylogin($username);
 	if ( $user || "yes" == $loginlockdownOptions['lockout_invalid_usernames'] ) {
 		$insert = "INSERT INTO " . $table_name . " (user_id, login_attempt_date, login_attempt_IP) " .
-				"VALUES ('" . $user->ID . "', now(), '" . mysql_real_escape_string($ip) . "')";
+				"VALUES ('" . $user->ID . "', now(), '" . $wpdb->escape($ip) . "')";
 		$results = $wpdb->query($insert);
 	}
 }
@@ -148,7 +154,7 @@ function lockDown($username = "") {
 	if ( $user || "yes" == $loginlockdownOptions['lockout_invalid_usernames'] ) {
 		$insert = "INSERT INTO " . $table_name . " (user_id, lockdown_date, release_date, lockdown_IP) " .
 				"VALUES ('" . $user->ID . "', now(), date_add(now(), INTERVAL " .
-				$loginlockdownOptions['lockout_length'] . " MINUTE), '" . $ip . "')";
+				$loginlockdownOptions['lockout_length'] . " MINUTE), '" . $wpdb->escape($ip) . "')";
 		$results = $wpdb->query($insert);
 	}
 }
@@ -161,7 +167,7 @@ function isLockedDown() {
 
 	$stillLocked = $wpdb->get_var("SELECT user_id FROM $table_name " . 
 					"WHERE release_date > now() AND " . 
-					"lockdown_IP LIKE '$class_c%'");
+					"lockdown_IP LIKE '" . $wpdb->escape($class_c) . "%'");
 
 	return $stillLocked;
 }
@@ -199,6 +205,10 @@ function print_loginlockdownAdminPage() {
 	$loginlockdownAdminOptions = get_loginlockdownOptions();
 
 	if (isset($_POST['update_loginlockdownSettings'])) {
+
+		//wp_nonce check
+		check_admin_referer('login-lockdown_update-options');
+
 		if (isset($_POST['ll_max_login_retries'])) {
 			$loginlockdownAdminOptions['max_login_retries'] = $_POST['ll_max_login_retries'];
 		}
@@ -220,11 +230,15 @@ function print_loginlockdownAdminPage() {
 		<?php
 	}
 	if (isset($_POST['release_lockdowns'])) {
+
+		//wp_nonce check
+		check_admin_referer('login-lockdown_release-lockdowns');
+
 		if (isset($_POST['releaseme'])) {
 			$released = $_POST['releaseme'];
 			foreach ( $released as $release_id ) {
 				$results = $wpdb->query("UPDATE $table_name SET release_date = now() " .
-							"WHERE lockdown_ID = $release_id");
+							"WHERE lockdown_ID = " . $wpdb->escape($release_id) . "");
 			}
 		}
 		update_option("loginlockdownAdminOptions", $loginlockdownAdminOptions);
@@ -235,14 +249,18 @@ function print_loginlockdownAdminPage() {
 	$dalist = listLockedDown();
 ?>
 <div class=wrap>
-<form method="post" action="<?php echo $_SERVER["REQUEST_URI"]; ?>">
+<form method="post" action="<?php echo esc_attr($_SERVER["REQUEST_URI"]); ?>">
+<?php
+if ( function_exists('wp_nonce_field') )
+	wp_nonce_field('login-lockdown_update-options');
+?>
 <h2><?php _e('Login LockDown Options', 'loginlockdown') ?></h2>
 <h3><?php _e('Max Login Retries', 'loginlockdown') ?></h3>
-<input type="text" name="ll_max_login_retries" size="8" value="<?php echo $loginlockdownAdminOptions['max_login_retries']; ?>">
+<input type="text" name="ll_max_login_retries" size="8" value="<?php echo esc_attr($loginlockdownAdminOptions['max_login_retries']); ?>">
 <h3><?php _e('Retry Time Period Restriction (minutes)', 'loginlockdown') ?></h3>
-<input type="text" name="ll_retries_within" size="8" value="<?php echo $loginlockdownAdminOptions['retries_within']; ?>">
+<input type="text" name="ll_retries_within" size="8" value="<?php echo esc_attr($loginlockdownAdminOptions['retries_within']); ?>">
 <h3><?php _e('Lockout Length (minutes)', 'loginlockdown') ?></h3>
-<input type="text" name="ll_lockout_length" size="8" value="<?php echo $loginlockdownAdminOptions['lockout_length']; ?>">
+<input type="text" name="ll_lockout_length" size="8" value="<?php echo esc_attr($loginlockdownAdminOptions['lockout_length']); ?>">
 <h3><?php _e('Lockout Invalid Usernames?', 'loginlockdown') ?></h3>
 <input type="radio" name="ll_lockout_invalid_usernames" value="yes" <?php if( $loginlockdownAdminOptions['lockout_invalid_usernames'] == "yes" ) echo "checked"; ?>>&nbsp;Yes&nbsp;&nbsp;&nbsp;<input type="radio" name="ll_lockout_invalid_usernames" value="no" <?php if( $loginlockdownAdminOptions['lockout_invalid_usernames'] == "no" ) echo "checked"; ?>>&nbsp;No
 <h3><?php _e('Mask Login Errors?', 'loginlockdown') ?></h3>
@@ -251,7 +269,11 @@ function print_loginlockdownAdminPage() {
 <input type="submit" name="update_loginlockdownSettings" value="<?php _e('Update Settings', 'loginlockdown') ?>" /></div>
 </form>
 <br />
-<form method="post" action="<?php echo $_SERVER["REQUEST_URI"]; ?>">
+<form method="post" action="<?php echo esc_attr($_SERVER["REQUEST_URI"]); ?>">
+<?php
+if ( function_exists('wp_nonce_field') )
+	wp_nonce_field('login-lockdown_release-lockdowns');
+?>
 <h3><?php _e('Currently Locked Out', 'loginlockdown') ?></h3>
 <?php
 	$num_lockedout = count($dalist);
@@ -260,7 +282,7 @@ function print_loginlockdownAdminPage() {
 	} else {
 		foreach ( $dalist as $key => $option ) {
 			?>
-<li><input type="checkbox" name="releaseme[]" value="<?php echo $option['lockdown_ID']; ?>"> <?php echo $option['lockdown_IP']; ?> (<?php echo $option['minutes_left']; ?> minutes left)</li>
+<li><input type="checkbox" name="releaseme[]" value="<?php echo esc_attr($option['lockdown_ID']); ?>"> <?php echo esc_attr($option['lockdown_IP']); ?> (<?php echo esc_attr($option['minutes_left']); ?> minutes left)</li>
 			<?php
 		}
 	}
@@ -340,7 +362,7 @@ if ( isset($loginlockdown_db_version) ) {
 		$username = sanitize_user($username);
 		$password = trim($password);
 
-		if ( 0 < isLockedDown() ) {
+		if ( "" != isLockedDown() ) {
 			return new WP_Error('incorrect_password', "<strong>ERROR</strong>: We're sorry, but this IP range has been blocked due to too many recent " .
 					"failed login attempts.<br /><br />Please try again later.");
 		}
